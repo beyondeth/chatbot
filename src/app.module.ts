@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ChatModule } from './chat/chat.module';
-import { SupabaseModule } from './supabase/supabase.module';
+
 import { PrismaModule } from './prisma/prisma.module';
 import * as path from 'path';
 
@@ -15,7 +15,6 @@ import * as path from 'path';
     }),
     PrismaModule,
     ChatModule,
-    SupabaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
