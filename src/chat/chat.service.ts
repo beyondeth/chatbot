@@ -70,37 +70,7 @@ export class ChatService {
           return '유튜브 동영상 ID를 추출할 수 없습니다.';
         }
 
-        // 2. YouTube Data API로 동영상 정보 가져오기
-        const apiKey = process.env.YOUTUBE_API_KEY;
-        if (!apiKey) {
-          return 'YouTube API 키가 설정되지 않았습니다.';
-        }
-
-        const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${apiKey}`;
-        const res = await axios.get<{
-          items: {
-            snippet: {
-              title: string;
-              description: string;
-              channelTitle: string;
-              publishedAt: string;
-            };
-            statistics: {
-              viewCount: string;
-              likeCount: string;
-            };
-          }[];
-        }>(apiUrl);
-
-        if (!res.data.items || res.data.items.length === 0) {
-          return '유튜브 동영상 정보를 찾을 수 없습니다.';
-        }
-
-        const video = res.data.items[0];
-        const snippet = video.snippet;
-        const stats = video.statistics;
-
-        // 3. 자막 가져오기
+        // 2. YoutubeTranscript로 자막 가져오기
         let transcript = '';
         try {
           const transcriptItems =
@@ -108,35 +78,23 @@ export class ChatService {
           transcript = transcriptItems.map((item) => item.text).join(' ');
         } catch (e) {
           console.error('자막 가져오기 실패:', e);
+          return '유튜브 자막을 가져올 수 없습니다. 자막이 없는 영상이거나, 접근이 제한된 영상일 수 있습니다.';
         }
 
-        // 4. Gemini에 전달할 내용 구성
-        const content = {
-          title: snippet.title,
-          channel: snippet.channelTitle,
-          uploadDate: new Date(snippet.publishedAt).toLocaleDateString(),
-          views: parseInt(stats.viewCount).toLocaleString(),
-          likes: parseInt(stats.likeCount).toLocaleString(),
-          description: snippet.description,
-          transcript: transcript,
-        };
+        if (!transcript) {
+          return '유튜브 자막이 존재하지 않습니다.';
+        }
 
+        // 3. Gemini에 자막만 전달하여 요약
         const model = this.genAI.getGenerativeModel({
           model: 'gemini-1.5-flash',
         });
 
         const prompt = `
-          아래 유튜브 동영상 정보를 바탕으로 3문장으로 요약해줘.
+          아래 유튜브 동영상 자막을 3문장으로 요약해줘.
           각 문장은 <p> 태그로 감싸서 반환해줘.
           반드시 한국어로 요약해줘.
-          
-          제목: ${content.title}
-          채널: ${content.channel}
-          업로드일: ${content.uploadDate}
-          조회수: ${content.views}회
-          좋아요: ${content.likes}개
-          설명: ${content.description}
-          ${content.transcript ? `자막: ${content.transcript}` : ''}
+          자막: ${transcript}
         `;
 
         const result = await model.generateContent(prompt);
