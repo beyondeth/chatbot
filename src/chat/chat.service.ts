@@ -91,11 +91,15 @@ export class ChatService {
         });
 
         const prompt = `
-          아래 유튜브 동영상 자막을 3문장으로 요약해줘.
-          각 문장은 <p> 태그로 감싸서 반환해줘.
-          반드시 한국어로 요약해줘.
-          자막: ${transcript}
-        `;
+아래 유튜브 동영상 자막만 참고해서 3문장으로 요약해줘.
+각 문장은 <p> 태그로 감싸서 반환해줘.
+자막에 없는 내용(예: 로그인 안내, 추천 영상, 기타 안내문 등)은 절대 포함하지 마.
+자막이 비어있거나 3문장 미만이면, 자막에 있는 내용만 최대한 요약해서 <p> 태그로 감싸서 반환해.
+반드시 한국어로 요약해줘.
+
+자막:
+${transcript}
+`;
 
         const result = await model.generateContent(prompt);
         return result.response.text();
