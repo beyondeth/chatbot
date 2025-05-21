@@ -81,7 +81,26 @@ export class ChatService {
           return '유튜브 자막을 가져올 수 없습니다. 자막이 없는 영상이거나, 접근이 제한된 영상일 수 있습니다.';
         }
 
-        if (!transcript) {
+        // transcript 전처리: 안내문/추천영상/불필요한 줄 제거
+        transcript = transcript
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(
+            (line) =>
+              line.length > 0 &&
+              !line.includes('로그인이 필요') &&
+              !line.includes('추천 동영상') &&
+              !line.includes('YouTube 웹페이지') &&
+              !line.includes('재생목록') &&
+              !line.includes('공유') &&
+              !line.includes('댓글') &&
+              !line.includes('업로더') &&
+              !line.includes('조회수') &&
+              !line.includes('길이'),
+          )
+          .join(' ');
+
+        if (!transcript || transcript.length < 30) {
           return '유튜브 자막이 존재하지 않습니다.';
         }
 
