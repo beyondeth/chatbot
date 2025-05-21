@@ -5,7 +5,7 @@ import { ChatService } from './chat.service';
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  @Post('/chat/process')
+  @Post('process')
   async processMessage(@Body() body: { roomId: string; message: string }) {
     const summaryText = await this.chatService.processMessage(
       body.roomId,

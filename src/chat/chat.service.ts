@@ -71,6 +71,8 @@ export class ChatService {
         각 문장은 <p> 태그로 감싸서 반환해줘.
         기사 내용이 영어라도 반드시 한국어로 요약해줘.
         웹페이지 내용: ${html}
+        만약 url 주소가 유튜브 동영상 링크라면 동영상의 주요 내용을 3문장으로 요약해줘.
+        만약 동영상의 내용을 직접 확인할 수 없다면, 제목이나 설명, 썸네일 등 공개적으로 접근 가능한 정보를 최대한 활용해서 요약해줘. 
       `;
 
       const result = await model.generateContent(prompt);
