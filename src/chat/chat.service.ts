@@ -68,19 +68,28 @@ export class ChatService {
         const videoIdMatch = url.match(/[?&]v=([^&]+)/);
         const videoId = videoIdMatch ? videoIdMatch[1] : '';
 
-        if (videoId) {
-          // 1. 자막 가져오기
-          let transcript = '';
-          try {
-            const transcriptItems =
-              await YoutubeTranscript.fetchTranscript(videoId);
-            transcript = transcriptItems.map((item) => item.text).join(' ');
-          } catch (e) {
-            console.error('자막 가져오기 실패:', e);
+        if (!videoId) {
+          return '유튜브 동영상 ID를 추출할 수 없습니다.';
+        }
+
+        // 1. 자막 가져오기
+        let transcript = '';
+        try {
+          const transcriptItems =
+            await YoutubeTranscript.fetchTranscript(videoId);
+          transcript = transcriptItems.map((item) => item.text).join(' ');
+        } catch (e) {
+          console.error('자막 가져오기 실패:', e);
+          // 자막이 없어도 계속 진행
+        }
+
+        // 2. 메타데이터 가져오기
+        try {
+          const apiKey = process.env.YOUTUBE_API_KEY;
+          if (!apiKey) {
+            throw new Error('YouTube API 키가 설정되지 않았습니다.');
           }
 
-          // 2. 메타데이터 가져오기
-          const apiKey = process.env.YOUTUBE_API_KEY;
           const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${apiKey}`;
           const res = await axios.get<{
             items: {
@@ -98,32 +107,49 @@ export class ChatService {
           }>(apiUrl);
 
           const items = res.data?.items;
-          if (items && items.length > 0) {
-            const snippet = items[0].snippet;
-            const stats = items[0].statistics;
-
-            // 3. 모든 정보 조합
-            content = `
-              제목: ${snippet.title}
-              채널: ${snippet.channelTitle}
-              업로드: ${new Date(snippet.publishedAt).toLocaleDateString()}
-              조회수: ${parseInt(stats.viewCount).toLocaleString()}회
-              좋아요: ${parseInt(stats.likeCount).toLocaleString()}개
-              설명: ${snippet.description}
-              자막: ${transcript}
-            `
-              .replace(/\s+/g, ' ')
-              .trim();
-          } else {
+          if (!items || items.length === 0) {
             return '유튜브 동영상 정보를 찾을 수 없습니다.';
           }
-        } else {
-          return '유튜브 동영상 ID를 추출할 수 없습니다.';
+
+          const snippet = items[0].snippet;
+          const stats = items[0].statistics;
+
+          // 3. 모든 정보 조합
+          content = `
+            제목: ${snippet.title}
+            채널: ${snippet.channelTitle}
+            업로드: ${new Date(snippet.publishedAt).toLocaleDateString()}
+            조회수: ${parseInt(stats.viewCount).toLocaleString()}회
+            좋아요: ${parseInt(stats.likeCount).toLocaleString()}개
+            설명: ${snippet.description}
+            ${transcript ? `자막: ${transcript}` : ''}
+          `
+            .replace(/\s+/g, ' ')
+            .trim();
+        } catch (e) {
+          console.error('YouTube API 호출 실패:', e);
+          return 'YouTube API 호출 중 오류가 발생했습니다.';
         }
       } else {
         // 일반 뉴스/블로그 등은 axios로 HTML 추출
-        const response = await axios.get<string>(url);
-        content = response.data;
+        try {
+          const response = await axios.get<string>(url, {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': 'ko,en;q=0.9',
+            },
+            timeout: 10000, // 10초 타임아웃
+          });
+          content = response.data;
+        } catch (e) {
+          console.error('웹페이지 가져오기 실패:', e);
+          return '웹페이지를 가져오는 중 오류가 발생했습니다.';
+        }
+      }
+
+      if (!content) {
+        return '요약할 내용을 찾을 수 없습니다.';
       }
 
       const model = this.genAI.getGenerativeModel({
@@ -141,7 +167,7 @@ export class ChatService {
       return result.response.text();
     } catch (error) {
       console.error('Error generating summary:', error);
-      return 'Failed to generate summary';
+      return '요약 생성 중 오류가 발생했습니다.';
     }
   }
 
