@@ -3,10 +3,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
 
 @Injectable()
 export class ChatService {
@@ -66,8 +62,25 @@ export class ChatService {
     try {
       let html = '';
       if (url.includes('youtube.com/watch')) {
-        // YouTube 링크면 Selenium으로 설명 추출
-        html = await getYoutubeDescription(url);
+        // YouTube 링크면 Data API로 제목/설명 추출
+        const videoIdMatch = url.match(/[?&]v=([^&]+)/);
+        const videoId = videoIdMatch ? videoIdMatch[1] : '';
+        if (videoId) {
+          const apiKey = process.env.YOUTUBE_API_KEY;
+          const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
+          const res = await axios.get<{
+            items: { snippet: { title: string; description: string } }[];
+          }>(apiUrl);
+          const items = res.data?.items;
+          if (items && items.length > 0) {
+            const snippet = items[0].snippet;
+            html = `제목: ${snippet.title}\n설명: ${snippet.description}`;
+          } else {
+            html = '유튜브 동영상 정보를 찾을 수 없습니다.';
+          }
+        } else {
+          html = '유튜브 동영상 ID를 추출할 수 없습니다.';
+        }
       } else {
         // 일반 뉴스/블로그 등은 axios로 HTML 추출
         const response = await axios.get<string>(url, {
@@ -92,7 +105,12 @@ export class ChatService {
       `;
 
       const result = await model.generateContent(prompt);
-      return result.response.text();
+      let summary = result.response.text();
+      // YouTube 링크인 경우 특별한 마커 추가
+      if (url.includes('youtube.com/watch')) {
+        summary = '🎥 ' + summary; // YouTube 마커 추가
+      }
+      return summary;
     } catch (error) {
       console.error('Error generating summary:', error);
       return 'Failed to generate summary';
@@ -112,18 +130,5 @@ export class ChatService {
         createdAt: true,
       },
     });
-  }
-}
-
-async function getYoutubeDescription(url: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync('./venv/bin/python', [
-      'selenium_youtube_desc.py',
-      url,
-    ]);
-    return stdout.trim();
-  } catch (error) {
-    console.error('Selenium 오류:', error);
-    return '';
   }
 }
