@@ -60,7 +60,14 @@ export class ChatService {
 
   private async generateSummary(url: string): Promise<string> {
     try {
-      const response = await axios.get<string>(url);
+      const response = await axios.get<string>(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'ko,en;q=0.9',
+          Referer: 'https://www.youtube.com/',
+        },
+      });
       const html: string = response.data;
       const model = this.genAI.getGenerativeModel({
         model: 'gemini-1.5-flash',
