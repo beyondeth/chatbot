@@ -62,13 +62,19 @@ export class ChatService {
     try {
       const response = await axios.get<string>(url);
       const html: string = response.data;
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+      });
 
-      const prompt = `Please analyze this webpage content and provide a concise summary in 3 paragraphs. Focus on the main points and key information. Here's the content: ${html}`;
+      const prompt = `
+        아래 웹페이지의 본문 내용을 3문장으로 요약해줘.
+        각 문장은 <p> 태그로 감싸서 반환해줘.
+        기사 내용이 영어라도 반드시 한국어로 요약해줘.
+        웹페이지 내용: ${html}
+      `;
 
       const result = await model.generateContent(prompt);
-      const response2 = result.response;
-      return response2.text();
+      return result.response.text();
     } catch (error) {
       console.error('Error generating summary:', error);
       return 'Failed to generate summary';
@@ -88,34 +94,5 @@ export class ChatService {
         createdAt: true,
       },
     });
-  }
-
-  private async callGeminiAPI(prompt: string): Promise<string> {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    const genAI = new GoogleGenerativeAI(apiKey || '');
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-  }
-
-  async testGemini() {
-    const prompt =
-      '이 문장을 3문장으로 요약해줘. <p>태그로 감싸서 반환해줘. 인공지능은 미래 사회에 어떤 영향을 미칠까?';
-    return await this.callGeminiAPI(prompt);
-  }
-
-  async testGeminiWithUrl() {
-    // 테스트용 샘플 URL (요약이 잘 되는 뉴스 기사 등으로 교체 가능)
-
-    const url =
-      'https://www.chosun.com/national/court_law/2025/05/20/SPXYBPHYIVF23NDK62H6CVORSU/';
-    try {
-      const response = await axios.get<string>(url);
-      const html: string = response.data;
-      const prompt = `<웹페이지 내용 요약>\n아래 웹페이지 내용을 3문단으로 요약해줘. <p> 태그로 감싸서 반환해줘.\n${html}`;
-      return await this.callGeminiAPI(prompt);
-    } catch (error) {
-      return 'URL 요약 테스트 중 오류 발생: ' + error;
-    }
   }
 }

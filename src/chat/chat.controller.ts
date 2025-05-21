@@ -18,14 +18,4 @@ export class ChatController {
   async getHistory(@Query('roomId') roomId: string) {
     return this.chatService.getHistory(roomId);
   }
-
-  @Get('test-gemini')
-  async testGemini() {
-    return this.chatService.testGemini();
-  }
-
-  @Get('test-gemini-url')
-  async testGeminiWithUrl() {
-    return this.chatService.testGeminiWithUrl();
-  }
 }
