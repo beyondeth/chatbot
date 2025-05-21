@@ -33,7 +33,8 @@
     "prisma": "^6.8.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.24"
+    "typeorm": "^0.3.24",
+    "youtube-transcript": "^1.2.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
