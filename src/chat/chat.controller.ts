@@ -12,23 +12,31 @@ export class ChatController {
       body.message,
     );
 
-    const safeSummary = typeof summaryText === 'string' ? summaryText : '';
-    const lines = safeSummary
-      .split(/<\/p>\s*<p>/g) // <p>문단별로 분리
-      .map((line) => line.replace(/<\/?p>/g, '').trim()) // <p>, </p> 제거 및 trim
+    // summaryText가 null이거나 summary 필드가 없을 때도 항상 JSON 반환
+    let summary = '';
+    if (typeof summaryText === 'string') {
+      summary = summaryText;
+    } else if (
+      summaryText &&
+      typeof summaryText === 'object' &&
+      'summary' in summaryText
+    ) {
+      summary = summaryText.summary || '';
+    }
+
+    // <p> 태그로 분리 및 이모티콘 붙이기 (기존 로직 유지)
+    const lines = summary
+      .split(/<\/p>\s*<p>/g)
+      .map((line) => line.replace(/<\/?p>/g, '').trim())
       .filter((line) => line.length > 0);
-
-    // 이모티콘 리스트 (원하는대로 바꿔도 됨)
     const emojis = ['🚀', '⚙️', '🏢'];
-
-    // 각 줄 앞에 이모티콘 붙이기
     const decorated = lines.map((line, idx) => {
       const emoji = emojis[idx] || '👉';
       return `${emoji} ${line}`;
     });
 
-    // summary는 string으로 반환
-    return { summary: decorated.join('\n') };
+    // 항상 JSON 형태로 반환
+    return { summary: decorated.join('\n') || '요약 생성에 실패했습니다.' };
   }
 
   @Get('history')
