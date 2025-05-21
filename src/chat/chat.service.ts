@@ -70,18 +70,39 @@ export class ChatService {
           return '유튜브 동영상 ID를 추출할 수 없습니다.';
         }
 
-        // 2. YoutubeTranscript로 자막 가져오기
+        // 2. 자막 추출 (한국어 → 영어 → 기본)
         let transcript = '';
+        // 2-1. 한국어 자막 시도
         try {
-          const transcriptItems =
-            await YoutubeTranscript.fetchTranscript(videoId);
-          transcript = transcriptItems.map((item) => item.text).join(' ');
-        } catch (e) {
-          console.error('자막 가져오기 실패:', e);
-          return '유튜브 자막을 가져올 수 없습니다. 자막이 없는 영상이거나, 접근이 제한된 영상일 수 있습니다.';
+          const items = await YoutubeTranscript.fetchTranscript(videoId, {
+            lang: 'ko',
+          });
+          transcript = items.map((item) => item.text).join(' ');
+        } catch {
+          /* empty */
+        }
+        // 2-2. 영어 자막 시도 (없으면)
+        if (!transcript) {
+          try {
+            const items = await YoutubeTranscript.fetchTranscript(videoId, {
+              lang: 'en',
+            });
+            transcript = items.map((item) => item.text).join(' ');
+          } catch {
+            /* empty */
+          }
+        }
+        // 2-3. 기본(언어 미지정) 시도 (없으면)
+        if (!transcript) {
+          try {
+            const items = await YoutubeTranscript.fetchTranscript(videoId);
+            transcript = items.map((item) => item.text).join(' ');
+          } catch {
+            /* empty */
+          }
         }
 
-        // transcript 전처리: 안내문/추천영상/불필요한 줄 제거
+        // 전처리: 안내문/불필요한 줄 제거
         transcript = transcript
           .split('\n')
           .map((line) => line.trim())
@@ -104,21 +125,20 @@ export class ChatService {
           return '유튜브 자막이 존재하지 않습니다.';
         }
 
-        // 3. Gemini에 자막만 전달하여 요약
+        // 3. Gemini에 자막 전달 (영어면 한국어로 번역해서 요약하도록 프롬프트)
         const model = this.genAI.getGenerativeModel({
           model: 'gemini-1.5-flash',
         });
 
         const prompt = `
-아래 유튜브 동영상 자막만 참고해서 3문장으로 요약해줘.
-각 문장은 <p> 태그로 감싸서 반환해줘.
-자막에 없는 내용(예: 로그인 안내, 추천 영상, 기타 안내문 등)은 절대 포함하지 마.
-자막이 비어있거나 3문장 미만이면, 자막에 있는 내용만 최대한 요약해서 <p> 태그로 감싸서 반환해.
-반드시 한국어로 요약해줘.
-
-자막:
-${transcript}
-`;
+        아래 유튜브 동영상 자막을 3문장으로 요약해줘.
+        자막이 영어라면 반드시 한국어로 번역해서 요약해줘.
+        각 문장은 <p> 태그로 감싸서 반환해줘.
+        자막에 없는 내용(예: 로그인 안내, 추천 영상, 기타 안내문 등)은 절대 포함하지 마.
+        자막이 비어있거나 3문장 미만이면, 자막에 있는 내용만 최대한 요약해서 <p> 태그로 감싸서 반환해.
+        자막:
+        ${transcript}
+        `;
 
         const result = await model.generateContent(prompt);
         return result.response.text();
