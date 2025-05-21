@@ -19,7 +19,7 @@ export class ChatController {
       .filter((line) => line.length > 0);
 
     // 이모티콘 리스트 (원하는대로 바꿔도 됨)
-    const emojis = ['📰', '✏️', '💡'];
+    const emojis = ['🚀', '⚙️', '🏢'];
 
     // 각 줄 앞에 이모티콘 붙이기
     const decorated = lines.map((line, idx) => {
@@ -27,6 +27,7 @@ export class ChatController {
       return `${emoji} ${line}`;
     });
 
+    // summary는 string으로 반환
     return { summary: decorated.join('\n') };
   }
 
