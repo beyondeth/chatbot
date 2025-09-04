@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { YoutubeTranscript } from 'youtube-transcript';
+import { Innertube } from 'youtubei.js';
 
 @Injectable()
 export class ChatService {
@@ -13,9 +14,7 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private configService: ConfigService,
   ) {
-    this.genAI = new GoogleGenerativeAI(
-      this.configService.get<string>('GEMINI_API_KEY') || '',
-    );
+    this.genAI = new GoogleGenerativeAI(this.configService.get<string>('GEMINI_API_KEY') || '');
   }
 
   async processMessage(
@@ -29,113 +28,242 @@ export class ChatService {
     summary: string | null;
     createdAt: Date;
   } | null> {
+    // URL 확인
     const url = this.extractUrl(message);
-    if (!url) {
-      return null;
+    if (url) {
+      const summary = await this.generateSummary(url);
+
+      // 요약이 null이면 (실패한 경우) null 반환하여 봇이 반응하지 않도록 함
+      if (!summary) {
+        return null;
+      }
+
+      return this.prisma.chatMessage.create({
+        data: {
+          roomId,
+          message,
+          url,
+          summary,
+        },
+      }) as Promise<{
+        id: number;
+        roomId: string;
+        message: string;
+        url: string | null;
+        summary: string | null;
+        createdAt: Date;
+      }>;
     }
 
-    const summary = await this.generateSummary(url);
+    // 키워드 확인
+    const keyword = this.extractKeyword(message);
+    if (keyword) {
+      const summary = await this.searchAndSummarize(keyword);
 
-    return this.prisma.chatMessage.create({
-      data: {
-        roomId,
-        message,
-        url,
-        summary,
-      },
-    }) as Promise<{
-      id: number;
-      roomId: string;
-      message: string;
-      url: string | null;
-      summary: string | null;
-      createdAt: Date;
-    }>;
+      if (!summary) {
+        return null;
+      }
+
+      return this.prisma.chatMessage.create({
+        data: {
+          roomId,
+          message,
+          url: null,
+          summary,
+        },
+      }) as Promise<{
+        id: number;
+        roomId: string;
+        message: string;
+        url: string | null;
+        summary: string | null;
+        createdAt: Date;
+      }>;
+    }
+
+    // URL도 키워드도 없으면 null 반환
+    return null;
   }
 
   private extractUrl(message: string): string | null {
+    // 코드 블록이나 JavaScript 코드가 포함된 메시지는 무시
+    if (message.includes('function ') || message.includes('var ') || message.includes('const ')) {
+      return null;
+    }
+
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const match = message.match(urlRegex);
-    return match ? match[0] : null;
+    if (!match) return null;
+
+    const url = match[0];
+
+    // 명확히 지원하지 않는 도메인만 필터링
+    const unsupportedDomains = [
+      'instagram.com',
+      'facebook.com',
+      'twitter.com',
+      'x.com',
+      'tiktok.com',
+      'github.com',
+      'stackoverflow.com',
+      'reddit.com',
+      'discord.com',
+      'telegram.org',
+    ];
+
+    // 지원하지 않는 도메인 체크
+    const isUnsupported = unsupportedDomains.some((domain) => url.includes(domain));
+
+    return isUnsupported ? null : url;
+  }
+
+  private extractKeyword(message: string): string | null {
+    // $키워드 형식 추출
+    const keywordRegex = /^\$(.+)$/;
+    const match = message.trim().match(keywordRegex);
+    return match ? match[1].trim() : null;
   }
 
   private async generateSummary(url: string): Promise<string> {
     try {
-      if (url.includes('youtube.com/watch')) {
-        // 1. YouTube 동영상 ID 추출
-        const videoIdMatch = url.match(/[?&]v=([^&]+)/);
-        const videoId = videoIdMatch ? videoIdMatch[1] : '';
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+      });
+
+      if (url.includes('youtube.com/watch') || url.includes('youtu.be')) {
+        console.log('YouTube URL 처리:', url);
+
+        // YouTube ID 추출
+        let videoId = '';
+        if (url.includes('youtube.com/watch')) {
+          const videoIdMatch = url.match(/[?&]v=([^&]+)/);
+          videoId = videoIdMatch ? videoIdMatch[1] : '';
+        } else if (url.includes('youtu.be')) {
+          const videoIdMatch = url.match(/youtu\.be\/([^?]+)/);
+          videoId = videoIdMatch ? videoIdMatch[1] : '';
+        }
 
         if (!videoId) {
           return '유튜브 동영상 ID를 추출할 수 없습니다.';
         }
 
-        // 2. 자막 추출 (한국어 → 영어 → 기본)
+        // 자막 추출 시도
         let transcript = '';
-        // 2-1. 한국어 자막 시도
+        let hasTranscript = false;
+
+        // youtubei.js로 먼저 시도
         try {
-          const items = await YoutubeTranscript.fetchTranscript(videoId, {
-            lang: 'ko',
-          });
-          transcript = items.map((item) => item.text).join(' ');
-        } catch {
-          /* empty */
-        }
-        // 2-2. 영어 자막 시도 (없으면)
-        if (!transcript) {
+          console.log('youtubei.js로 자막 추출 시도...');
+          const youtube = await Innertube.create();
+          const info = await youtube.getInfo(videoId);
+
+          // 자막 가져오기
+          const transcriptData = await info.getTranscript();
+
+          if (transcriptData && transcriptData.transcript && transcriptData.transcript.content) {
+            const segments = transcriptData.transcript.content.body.initial_segments;
+            if (segments && segments.length > 0) {
+              transcript = segments.map((segment) => segment.snippet.text).join(' ');
+              hasTranscript = true;
+              console.log('youtubei.js 자막 추출 성공, 길이:', transcript.length);
+            }
+          }
+        } catch (ytError) {
+          console.log('youtubei.js 실패, youtube-transcript로 대체:', ytError.message);
+
+          // youtube-transcript로 대체 시도
           try {
-            const items = await YoutubeTranscript.fetchTranscript(videoId, {
-              lang: 'en',
-            });
-            transcript = items.map((item) => item.text).join(' ');
-          } catch {
-            /* empty */
+            const transcriptList = await YoutubeTranscript.fetchTranscript(videoId);
+            console.log('youtube-transcript items 수:', transcriptList.length);
+
+            if (transcriptList && transcriptList.length > 0) {
+              transcript = transcriptList.map((item) => item.text).join(' ');
+              hasTranscript = true;
+              console.log('youtube-transcript 자막 추출 성공, 길이:', transcript.length);
+            }
+          } catch (error) {
+            console.log('youtube-transcript도 실패:', error.message);
           }
         }
-        // 2-3. 기본(언어 미지정) 시도 (없으면)
-        if (!transcript) {
-          try {
-            const items = await YoutubeTranscript.fetchTranscript(videoId);
-            transcript = items.map((item) => item.text).join(' ');
-          } catch {
-            /* empty */
+
+        console.log(
+          '자막 체크 - hasTranscript:',
+          hasTranscript,
+          ', transcript 길이:',
+          transcript.length,
+        );
+        console.log('transcript 타입:', typeof transcript);
+        console.log(
+          'transcript 내용 첫 100자:',
+          transcript ? transcript.substring(0, 100) : 'null or undefined',
+        );
+
+        if (hasTranscript && transcript.length > 30) {
+          // 자막 기반 정확한 요약
+          console.log('자막 길이:', transcript.length);
+          console.log('자막 샘플:', transcript.substring(0, 200));
+
+          // 자막이 너무 길면 중간 부분을 주로 사용 (인트로/아웃트로 제외)
+          let subtitleForSummary = transcript;
+          if (transcript.length > 15000) {
+            // 시작 20%, 중간 60%, 끝 20% 비율로 추출
+            const start = Math.floor(transcript.length * 0.2);
+            const end = Math.floor(transcript.length * 0.8);
+            subtitleForSummary = transcript.substring(start, end);
+            console.log('긴 자막 - 중간 부분 추출:', start, '~', end);
           }
+
+          const prompt = `
+            다음은 유튜브 영상의 자막입니다. 이 자막을 분석하여 영상의 핵심 주제와 내용만을 3문장으로 요약해주세요.
+            
+            요약 규칙:
+            1. 영상의 메인 주제와 직접적으로 관련된 내용만 포함
+            2. 광고, 스폰서, 인트로, 아웃트로, 구독 요청 등은 제외
+            3. 영상에서 전달하고자 하는 핵심 메시지나 정보만 추출
+            4. 각 문장은 <p> 태그로 감싸서 반환
+            5. 영어 자막이면 한국어로 번역하여 요약
+            6. 화자가 여러 명이면 주요 발언자의 핵심 내용 위주로 요약
+            7. 발표자 이름이나 채널명보다는 실제 내용에 집중
+            
+            자막: ${subtitleForSummary.substring(0, 10000)}
+          `;
+
+          try {
+            const result = await model.generateContent(prompt);
+            const summary = result.response.text();
+            console.log('YouTube 요약 성공');
+            return summary;
+          } catch (error) {
+            console.error('Gemini 요약 오류:', error);
+            return null;
+          }
+        } else {
+          // 자막을 가져올 수 없는 경우 Gemini API로 직접 시도
+          console.log('자막 추출 실패, Gemini API로 직접 시도');
+
+          try {
+            const prompt = `
+              다음 YouTube 영상 URL의 내용을 분석하고 3문장으로 요약해줘.
+              각 문장은 <p> 태그로 감싸서 반환해줘.
+              한국어로 요약해줘.
+              
+              URL: ${url}
+            `;
+
+            const result = await model.generateContent(prompt);
+            const summary = result.response.text();
+
+            if (summary && summary.length > 20) {
+              console.log('Gemini 직접 요약 성공');
+              return summary;
+            }
+          } catch (geminiError) {
+            console.log('Gemini 직접 요약도 실패:', geminiError);
+          }
+
+          // 모든 방법이 실패하면 null 반환
+          return null;
         }
-
-        // 전처리: 안내문/불필요한 줄 제거
-        transcript = transcript
-          .split('\n')
-          .map((line) => line.trim())
-          .filter(
-            (line) =>
-              line.length > 0 &&
-              !line.includes('로그인이 필요') &&
-              !line.includes('추천 동영상') &&
-              !line.includes('YouTube 웹페이지') &&
-              !line.includes('재생목록') &&
-              !line.includes('공유') &&
-              !line.includes('댓글') &&
-              !line.includes('업로더') &&
-              !line.includes('조회수') &&
-              !line.includes('길이'),
-          )
-          .join(' ');
-
-        if (!transcript || transcript.length < 30) {
-          return '유튜브 자막이 존재하지 않습니다.';
-        }
-
-        // 3. Gemini에 자막 전달 (영어면 한국어로 번역해서 요약하도록 프롬프트)
-        const model = this.genAI.getGenerativeModel({
-          model: 'gemini-1.5-flash',
-        });
-
-        const prompt = `
-        유튜브 자막 : ${transcript} 자막 안에 있는 내용으로만 3문장으로 요약하고 각 문장은 <p> 태그로 감싸서 반환해줘.
-        <p> 태그 문장안에는 로그인 안내, 추천 영상, HTML, 안내문 등 절대 포함하지 마. 만약 자막이 없다면 영상 제목과 간단한 내용 한줄로 요약해서 줘.`;
-
-        const result = await model.generateContent(prompt);
-        return result.response.text();
       } else {
         // 일반 웹페이지 처리
         const response = await axios.get<string>(url, {
@@ -144,17 +272,15 @@ export class ChatService {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept-Language': 'ko,en;q=0.9',
           },
-        });
-
-        const model = this.genAI.getGenerativeModel({
-          model: 'gemini-1.5-flash',
+          timeout: 10000,
         });
 
         const prompt = `
           아래 웹페이지 내용을 3문장으로 요약해줘.
           각 문장은 <p> 태그로 감싸서 반환해줘.
           기사 내용이 영어라도 반드시 한국어로 요약해줘.
-          내용: ${response.data}
+          광고, 메뉴, 네비게이션 등은 제외하고 본문 내용만 요약해줘.
+          내용: ${response.data.substring(0, 10000)}
         `;
 
         const result = await model.generateContent(prompt);
@@ -162,7 +288,30 @@ export class ChatService {
       }
     } catch (error) {
       console.error('Error generating summary:', error);
-      return '요약 생성 중 오류가 발생했습니다.';
+      // 에러 발생 시 null 반환 (봇이 반응하지 않음)
+      return null;
+    }
+  }
+
+  private async searchAndSummarize(keyword: string): Promise<string | null> {
+    try {
+      const model = this.genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+      });
+
+      // 키워드에 대한 정보를 검색하고 요약
+      const prompt = `
+        "${keyword}"에 대해 최신 정보를 바탕으로 3문장으로 요약해줘.
+        각 문장은 <p> 태그로 감싸서 반환해줘.
+        정확하고 유용한 정보를 제공해줘.
+        한국어로 답변해줘.
+      `;
+
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error('Error searching keyword:', error);
+      return null;
     }
   }
 

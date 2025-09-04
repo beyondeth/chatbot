@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>카카오봇 테스트</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        input, button { width: 100%; padding: 10px; margin: 5px 0; }
+        #result { background: #f0f0f0; padding: 15px; margin-top: 20px; border-radius: 5px; white-space: pre-wrap; }
+        .loading { color: #666; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 카카오봇 로컬 테스트</h1>
+        
+        <h3>테스트 URL 입력</h3>
+        <input type="text" id="urlInput" placeholder="유튜브 또는 뉴스 URL 입력..." 
+               value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+        
+        <button onclick="testSummary()">요약 테스트</button>
+        
+        <div id="result"></div>
+        
+        <h3>예시 링크</h3>
+        <ul>
+            <li><a href="#" onclick="setUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')">유튜브 예시</a></li>
+            <li><a href="#" onclick="setUrl('https://n.news.naver.com/article/001/0014994526')">네이버 뉴스 예시</a></li>
+        </ul>
+    </div>
+
+    <script>
+        function setUrl(url) {
+            document.getElementById('urlInput').value = url;
+            return false;
+        }
+        
+        async function testSummary() {
+            const url = document.getElementById('urlInput').value;
+            const resultDiv = document.getElementById('result');
+            
+            if (!url) {
+                resultDiv.innerHTML = '<span class="error">URL을 입력해주세요!</span>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<span class="loading">🔄 요약 중...</span>';
+            
+            try {
+                const response = await fetch('http://localhost:3000/chat/process', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        roomId: 'test-room',
+                        message: url
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.summary) {
+                    // 메신저봇R과 동일한 포맷팅 적용
+                    let formatted = data.summary;
+                    formatted = formatted.replace(/<p>/g, "• ");
+                    formatted = formatted.replace(/<\/p>/g, "\n");
+                    formatted = formatted.replace(/<[^>]*>/g, "");
+                    formatted = formatted.replace(/\n\s*\n/g, "\n");
+                    
+                    const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
+                    const icon = isYoutube ? "🎥" : "📰";
+                    const type = isYoutube ? "유튜브" : "뉴스";
+                    
+                    resultDiv.innerHTML = `<span class="success">${icon} ${type} 요약</span>\n\n${formatted.trim()}`;
+                } else {
+                    resultDiv.innerHTML = '<span class="error">❌ 요약 생성에 실패했습니다.</span>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">⚠️ 오류: ${error.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>

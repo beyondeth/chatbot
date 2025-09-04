@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,6 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 기존 테이블
 model ChatMessage {
   id        Int      @id @default(autoincrement())
   roomId    String
@@ -20,4 +18,166 @@ model ChatMessage {
   url       String?
   summary   String?
   createdAt DateTime @default(now())
+}
+
+// 사용자 테이블
+model User {
+  id          Int       @id @default(autoincrement())
+  kakaoId     String    @unique // 카카오톡 사용자 ID
+  nickname    String
+  isAdmin     Boolean   @default(false)
+  level       Int       @default(1)
+  experience  Int       @default(0)
+  points      Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  messages    ChatActivity[]
+  games       GameHistory[]
+  rewards     PointHistory[]
+  
+  @@index([kakaoId])
+  @@index([level])
+  @@index([points])
+}
+
+// 채팅 활동 기록
+model ChatActivity {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  roomId      String
+  messageType String    // 'normal', 'command', 'url'
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id])
+  
+  @@index([userId, roomId, createdAt])
+  @@index([roomId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// 채팅방 정보
+model Room {
+  id          Int       @id @default(autoincrement())
+  roomId      String    @unique
+  roomName    String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  alarms      Alarm[]
+  
+  @@index([roomId])
+}
+
+// 게임 기록
+model GameHistory {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  roomId      String
+  gameType    String    // 'oddeven', 'rps'
+  userChoice  String?   // 사용자 선택
+  botChoice   String?   // 봇 선택
+  result      String    // 'win', 'lose', 'draw'
+  pointChange Int       @default(0)
+  details     Json?     // 추가 정보 (주사위 값 등)
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id])
+  
+  @@index([userId, createdAt])
+  @@index([gameType, createdAt])
+}
+
+// 포인트 이력
+model PointHistory {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  points      Int       // 변경된 포인트 (양수/음수)
+  reason      String    // 'game_win', 'daily_bonus', 'level_up', 'admin_gift' etc.
+  balance     Int       // 변경 후 잔액
+  metadata    Json?     // 추가 정보
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id])
+  
+  @@index([userId, createdAt])
+  @@index([reason, createdAt])
+}
+
+// 레벨 설정
+model LevelConfig {
+  level       Int       @id
+  expRequired Int       // 해당 레벨까지 필요한 총 경험치
+  pointReward Int       // 레벨업 시 포인트 보상
+  title       String?   // 레벨 칭호
+}
+
+// 알람 설정
+model Alarm {
+  id          Int       @id @default(autoincrement())
+  roomId      String
+  message     String
+  cronPattern String    // cron 표현식
+  isActive    Boolean   @default(true)
+  createdBy   String    // 생성한 사용자 kakaoId
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  room        Room      @relation(fields: [roomId], references: [roomId])
+  
+  @@index([roomId, isActive])
+}
+
+// 명령어 목록
+model Command {
+  id          Int       @id @default(autoincrement())
+  command     String    @unique
+  description String
+  category    String    // 'game', 'info', 'admin', 'fun'
+  usage       String?   // 사용법 예시
+  isAdminOnly Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  
+  @@index([category, isActive])
+}
+
+// 일일 출석 체크
+model DailyCheck {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  checkDate   DateTime  @db.Date
+  streak      Int       @default(1) // 연속 출석 일수
+  pointReward Int       // 받은 포인트
+  createdAt   DateTime  @default(now())
+  
+  @@unique([userId, checkDate])
+  @@index([userId, checkDate])
+}
+
+// 뉴스 캐시 (선택적)
+model NewsCache {
+  id          Int       @id @default(autoincrement())
+  category    String
+  title       String
+  link        String
+  summary     String?
+  publishedAt DateTime
+  createdAt   DateTime  @default(now())
+  
+  @@index([category, createdAt])
+}
+
+// 시스템 설정
+model SystemConfig {
+  key         String    @id
+  value       Json
+  description String?
+  updatedAt   DateTime  @updatedAt
 }
